@@ -1,0 +1,297 @@
+---
+title: "Time Series Analysis of Hang Seng Index"
+author: "Tan SiRui"
+date: "2026-11-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = "", fig.height = 3.5)
+library(quantmod)
+library(tseries)
+library(forecast)
+```
+
+```{r page-css, echo=FALSE, results='asis'}
+cat('<style>table { page-break-inside: avoid; }</style>')
+```
+
+# 1. Introduction
+
+The Hang Seng Index (HSI) is the benchmark stock index of Hong Kong. This project models the daily log returns of the HSI with an ARIMA model and produces a 20-step ahead forecast.
+
+Forecasting equity index returns has a long history in finance and a mixed empirical record. Daily returns of major indices are notoriously difficult to predict at short horizons, yet the question of how much linear structure remains, and how much of it a simple ARIMA framework can recover, is still worth asking. This report asks whether the daily log return of a major Asian equity index is stationary, whether any dependence can be identified from the correlogram, and whether a fitted ARIMA model produces forecasts that are meaningfully better than a naive benchmark. The answer, as later sections show, is largely negative, and the report argues that this negative result is itself informative about the limits of linear time series models applied to financial returns.
+
+# 2. Data Description
+
+The data are obtained from Yahoo Finance. The sample covers 1,193 daily
+trading observations from 4 January 2022 to 12 November 2026. The index is
+quoted only on trading days, so the series is equally spaced in trading time
+rather than in calendar time. Log returns are used instead of raw prices
+because the price level is non‑stationary, while log returns are
+approximately stationary. Returns are computed on the logarithmic scale as
+
+
+$$r_t = \ln\left(\frac{P_t}{P_{t-1}}\right)$$
+
+
+where $P_t$ is the closing level of the index on day $t$. The logarithmic
+transformation keeps returns additive over consecutive periods and removes
+most of the scale dependence of the price level.
+
+
+```{r data, results='hide'}
+getSymbols("^HSI", from = "2022-01-01", to = "2026-11-13")
+hsi_price <- Cl(HSI)
+log_return <- na.omit(diff(log(hsi_price)))
+
+
+```
+
+
+Figure 1 shows the daily log returns of the Hang Seng Index over the sample period. The series fluctuates around zero and shows clear periods of high volatility.
+
+```{r}
+plot(log_return, main = "HSI Daily Log Returns", ylab = "Log Return")
+```
+
+# 3. Analysis and Modelling
+
+## 3.1 Stationarity Tests
+
+An ARIMA model requires a stationary series. The Augmented Dickey-Fuller (ADF) test has the null hypothesis of a unit root, so a small p-value supports stationarity. The KPSS test has the opposite null hypothesis, so a large p-value supports stationarity.
+
+
+Both tests support the conclusion of stationarity. The ADF test rejects the null hypothesis of a unit root at the 5 per cent level, and the KPSS test does not reject the null hypothesis of level stationarity, so the log return series is treated as stationary and no further differencing is required. The value d = 0 is therefore used in the ARIMA model. The results of both tests are summarised below.
+
+```{r stationarity-table, warning=FALSE}
+adf_res  <- adf.test(as.numeric(log_return))
+kpss_res <- kpss.test(as.numeric(log_return))
+
+knitr::kable(
+  data.frame(
+    Test        = c("ADF", "KPSS"),
+    Null        = c("Unit root (non-stationary)", "Stationary"),
+    Alternative = c("Stationary", "Non-stationary"),
+    p_value     = c(round(adf_res$p.value, 4), round(kpss_res$p.value, 4))
+  ),
+  caption = "Summary of the stationarity tests"
+)
+
+```
+
+## 3.2 Model Identification
+
+The ACF and PACF are used to identify the model orders. The ACF helps determine the moving-average order q, and the PACF helps determine the autoregressive order p. Since the return series is already stationary, the differencing order is set to d = 0.
+```{r acf-pacf, fig.height=3.6, fig.width=9}
+{
+par(mfrow = c(1, 2), mar = c(4.5, 4.2, 3.8, 1), mgp = c(2.6, 0.8, 0))
+acf(log_return, main = "ACF of HSI Log Returns")
+pacf(log_return, main = "PACF of HSI Log Returns")
+}
+```
+
+The autocorrelation function stays essentially within the 95 per cent confidence bands at every non-zero lag, and the few excursions that occur are small and close to the width of the bands themselves. The partial autocorrelation function behaves in much the same way, with a first value of about 0.02, an isolated negative value of roughly −0.06 near lag 21, and the remaining values sitting close to the boundary. Neither function displays the sharp cut-off that would identify a low order autoregressive or moving average structure with any confidence. With dependence this weak the orders cannot be identified unambiguously from the plots alone. A specification with one autoregressive term and two moving-average terms, ARIMA(1,0,2), is therefore adopted as a conservative starting point, and the alternatives are compared formally in Section 3.4.
+
+
+## 3.3 Candidate Model Estimation and Diagnostics
+
+The candidate ARIMA(1,0,2) model is fitted to the log returns. Model adequacy is checked with the Ljung-Box test, whose null hypothesis is that the residuals are white noise. A p-value greater than 0.05 indicates that the residuals contain no remaining autocorrelation, so the model is adequate.
+```{r arima}
+fit2 <- Arima(log_return, order = c(1, 0, 2))
+checkresiduals(fit2)
+
+```
+
+The fitted ARIMA(1,0,2) model has an AIC of -6481.06, an AICc of -6481.01 and a BIC of -6455.64, with an estimated innovation variance of 0.000255 and a maximised log likelihood of 3245.53. The Ljung-Box test on the residuals gives Q* = 9.1963 with 7 degrees of freedom and a p-value of 0.2389. Since this p-value exceeds 0.05, the null hypothesis of white-noise residuals is not rejected. The residual time plot shows no visible pattern, the residual ACF lies mostly within the confidence bands, and the histogram is centred on zero but noticeably peaked with heavy tails. The model is therefore adequate as a description of the conditional mean, although the errors are clearly not Gaussian.
+
+
+The estimated coefficients and their standard errors are reported in the table below.
+
+```{r coefficient-table}
+co <- coef(fit2)
+
+knitr::kable(
+  data.frame(
+    Parameter = names(co),
+    Estimate  = round(as.numeric(co), 4),
+    Std.Error = round(sqrt(diag(vcov(fit2))), 4)
+  ),
+  row.names = FALSE,
+  caption = "Estimated coefficients of the ARIMA(1,0,2) model"
+)
+
+```
+
+```{r model-equation}
+b <- coef(fit2)
+cat(sprintf("r_t = %+.4f r_(t-1) + a_t %+.4f a_(t-1) %+.4f a_(t-2),   sigma^2 = %.6f\n",
+            b["ar1"], b["ma1"], b["ma2"], fit2$sigma2))
+
+```
+
+Writing the model in full,
+
+$$
+r_t = \phi_1 r_{t-1} + a_t + \theta_1 a_{t-1} + \theta_2 a_{t-2},
+$$
+
+where $a_t$ is a white-noise innovation with variance $\sigma^2$.
+
+## 3.4 Model Comparison and Selection
+
+To settle the specification formally, six candidate models are estimated and compared using the AIC, the corrected AIC (AICc) and the BIC. Lower values indicate a better trade-off between model fit and complexity. The automatic selection procedure auto.arima() is included as a benchmark.
+
+```{r model-compare}
+models <- list(
+  "ARIMA(0,0,0) without constant" = Arima(log_return, order = c(0, 0, 0), include.mean = FALSE),
+  "ARIMA(0,0,0) with constant"    = Arima(log_return, order = c(0, 0, 0), include.mean = TRUE),
+  "ARIMA(1,0,0)"                  = Arima(log_return, order = c(1, 0, 0)),
+  "ARIMA(0,0,1)"                  = Arima(log_return, order = c(0, 0, 1)),
+  "ARIMA(1,0,1)"                  = Arima(log_return, order = c(1, 0, 1)),
+  "ARIMA(1,0,2)"                  = Arima(log_return, order = c(1, 0, 2))
+)
+
+auto_fit <- auto.arima(log_return, seasonal = FALSE)
+
+comparison <- data.frame(
+  Model = names(models),
+  AIC  = round(sapply(models, AIC), 2),
+  AICc = round(sapply(models, function(m) m$aicc), 2),
+  BIC  = round(sapply(models, BIC), 2)
+)
+
+comparison <- comparison[order(comparison$AICc), ]
+
+
+```
+
+```{r model-table}
+knitr::kable(comparison, row.names = FALSE,
+             caption = "Comparison of candidate ARIMA models")
+
+```
+
+The comparison is unambiguous. The zero-mean white noise specification attains the lowest AICc and the lowest BIC of the six candidates, and the automatic order search implemented in auto.arima() returns exactly this specification after examining a much wider set of orders. Every candidate that adds autoregressive or moving average terms performs worse on both criteria, and the penalty is largest for ARIMA(1,0,2), which lies 5.4 AICc units and 25.7 BIC units behind the selected model.
+
+The role of the constant is worth separating from the role of the lag structure. Including a mean costs one parameter and improves the likelihood by an amount so small that the BIC falls by a further 7.1 units when the constant is dropped. The estimated constant is 2.60e-05 per trading day, roughly 0.16 per cent of the daily standard deviation of log returns, too small to carry economic or statistical weight.
+
+```{r lr-test}
+m0 <- Arima(log_return, order = c(0, 0, 0))
+
+lr_stat <- 2 * (as.numeric(logLik(fit2)) - as.numeric(logLik(m0)))
+lr_p    <- pchisq(lr_stat, df = 3, lower.tail = FALSE)
+
+cat(sprintf("LR statistic = %.2f, df = 3, p-value = %.3f\n", lr_stat, lr_p))
+
+```
+
+A likelihood ratio test of the ARIMA(1,0,2) model against the constant-mean white noise benchmark gives a statistic of 2.66 with three degrees of freedom and a p-value of 0.447, so the three additional parameters are not jointly significant. Because both models contain a constant, this test speaks only to the lag structure, and the choice between a constant and no constant is carried by the information criteria above, which favour the zero-mean specification by 7.1 BIC units. The zero-mean white noise model is therefore the one carried forward into the forecast below.
+
+## 3.5 Residual Normality and Goodness of Fit
+
+The Ljung-Box test only requires the residuals to be serially uncorrelated. Their distribution is examined separately with a normal Q-Q plot and the Jarque-Bera test, and the fitted values are compared with the observed returns to assess how well the model tracks the series in-sample.
+
+```{r qq-plot, fig.height=3.5}
+res <- as.numeric(residuals(fit2))
+
+qqnorm(res, main = "Normal Q-Q Plot of Residuals")
+qqline(res, col = "red")
+tseries::jarque.bera.test(res)
+```
+
+```{r fitted-plot, fig.height=3.5}
+tail_n <- 100
+
+act_vals <- tail(as.numeric(log_return), tail_n)
+fit_vals <- tail(as.numeric(fitted(fit2)), tail_n)
+
+plot(act_vals, type = "l", col = "grey55",
+     main = "Actual versus Fitted Log Returns (last 100 days)",
+     xlab = "Trading days", ylab = "Log return")
+lines(seq_along(fit_vals), fit_vals, col = "red", lwd = 2)
+legend("topright", legend = c("Actual", "Fitted"),
+       col = c("grey55", "red"), lty = 1, bty = "n")
+```
+
+The Q-Q plot shows heavier tails than the normal reference line, and the Jarque-Bera test rejects normality at the 5% level (X-squared = 2962.9, df = 2, p < 0.001). This does not invalidate the model, since the Ljung-Box test only requires the residuals to be serially uncorrelated, which is satisfied. It does, however, mean that prediction intervals constructed under the normal assumption should be interpreted as approximate rather than exact. The fitted-value plot shows that the model tracks the level of the series poorly in absolute terms, because the conditional mean of daily returns is close to zero; this is expected for return data and is consistent with the results in Section 3.4.
+
+# 4. Forecast
+
+The forecast in this section is generated from the model selected in Section 3.4, the zero-mean white noise process ARIMA(0,0,0). Because a white noise model carries no dynamics that could be extrapolated, the point forecast equals zero at every horizon and the prediction intervals have a constant width. The table reports the first six horizons and the figure presents the full twenty step forecast.
+
+```{r forecast, fig.height=4}
+fit_final   <- Arima(log_return, order = c(0, 0, 0), include.mean = FALSE)
+fore_result <- forecast(fit_final, h = 20)
+
+fore_tab <- as.data.frame(fore_result)
+knitr::kable(fore_tab[1:6, ], digits = 6,
+             caption = "First six horizons of the 20-step forecast")
+
+plot(fore_result, include = 0,
+     main = "20-Step Ahead Forecast of HSI Log Returns")
+
+```
+
+ The 80 per cent interval extends about 0.0204 either side of zero and the 95 per cent interval about 0.0313, both of which reproduce the in-sample standard deviation of 0.0159. What the model contributes is therefore not a directional prediction but a calibrated statement of how far a single day's return can reasonably move. This is the consequence of the comparison in Section 3.4 rather than a defect of the estimation, and it is the correct answer for a series whose conditional mean carries almost no exploitable information.
+
+## 4.1 Out-of-sample Forecast Evaluation
+
+To assess forecasting performance rather than only in-sample fit, the sample is split into a training set containing the first 80% of the observations and a test set containing the remaining 20%. The model is re-estimated using the training set only, and its forecasts are compared with the realised returns. Accuracy is summarised by the mean error (ME), the root mean squared error (RMSE), the mean absolute error (MAE) and the mean absolute percentage error (MAPE).
+
+```{r out-of-sample}
+n <- length(log_return)
+
+train_ts <- ts(as.numeric(log_return[1:floor(0.8 * n)]))
+test_ts  <- ts(as.numeric(log_return[(floor(0.8 * n) + 1):n]),
+               start = length(train_ts) + 1, frequency = 1)
+
+fit_train <- Arima(train_ts, order = c(0, 0, 0), include.mean = FALSE)
+fc_test   <- forecast(fit_train, h = length(test_ts))
+
+knitr::kable(accuracy(fc_test, test_ts), digits = 4,
+             caption = "Out-of-sample forecast accuracy")
+
+```
+
+```{r oos-plot, fig.height=3.5}
+actual <- as.numeric(test_ts)
+pred   <- as.numeric(fc_test$mean)
+
+plot(actual, type = "l", col = "black",
+     main = "Out-of-sample Forecast versus Actual Returns",
+     xlab = "Test set observations", ylab = "Log return")
+lines(pred, col = "red", lty = 2)
+legend("topright", legend = c("Actual", "Forecast"),
+       col = c("black", "red"), lty = c(1, 2), bty = "n")
+
+```
+
+The out-of-sample evaluation covers a test set of 239 observations. The mean error is close to zero, so the forecasts carry no systematic bias. The RMSE is 0.0117 and the MAE is 0.0094. Because the forecast is essentially a constant, these two values are almost identical to the standard deviation of the returns in the test period, which confirms that the model reproduces the scale of the series but not its direction. The mean absolute percentage error is around 100 per cent. MAPE is not a reliable measure for daily returns because the actual values frequently approach zero and the ratio becomes unstable, so it is reported only for completeness. Theil's U statistic is 0.9986, essentially equal to one, indicating that the forecasts are no better than a naive forecast which simply repeats the last observed value. This is the expected outcome for a series whose dependence structure is as weak as the information criteria in Section 3.4 suggest.
+
+# 5. Conclusion
+
+This project modelled the daily log returns of the Hang Seng Index over 1,193 trading days from 4 January 2022 to 12 November 2026. The series is stationary according to both the Augmented Dickey-Fuller and the KPSS tests, so no further differencing was required. The ACF and PACF showed no clear cut-off, which means the orders could not be read off the plots, and the specification was instead settled by comparing a small set of candidate models on information criteria.
+
+That comparison is decisive. The zero-mean white noise specification attains the lowest AICc and the lowest BIC of the six candidates, and the automatic order search returns the same model after examining a much wider set of orders. Every specification that adds lag structure performs worse on both criteria. A likelihood ratio test of ARIMA(1,0,2) against the constant-mean benchmark gives a statistic of 2.66 on three degrees of freedom and a p-value of 0.447, so the three additional parameters are not jointly significant. The dependence in the conditional mean is therefore too weak to support a low order ARMA model at this sample size.
+
+The residual diagnostics support this reading. The Ljung-Box test does not reject the hypothesis that the residuals are serially uncorrelated, so the estimated candidate remains an adequate description of the conditional mean, but the residuals are clearly non-normal, with heavy tails confirmed by the Jarque-Bera test. Since normality is not required for the validity of the Ljung-Box test, this affects only the interpretation of the prediction intervals, which should be read as approximate.
+
+The forecast is flat at zero for all twenty horizons and the intervals are of constant width, which is exactly what a zero-mean white noise specification implies. The out-of-sample evaluation confirms that the forecasts are unbiased but inaccurate, with a Theil's U of 0.9986 that places them level with a naive benchmark. The in-sample comparison and the out-of-sample test therefore say the same thing about the predictability of daily index returns at this frequency.
+
+Two extensions follow naturally. First, the pronounced non-normality and the visible clustering of volatility in the fitted-value plot suggest that a model of the conditional variance of the GARCH type would be more informative than a model of the conditional mean. Second, since the dependence in the mean is negligible at a daily frequency, a natural next step would be to test for predictive content at lower frequencies, where the signal-to-noise ratio is higher.
+
+# References
+
+Hyndman, R. J., and Athanasopoulos, G. (2021). Forecasting: Principles and Practice. 3rd ed. OTexts.
+
+Dickey, D. A., and Fuller, W. A. (1979). Distribution of the Estimators for Autoregressive Time Series with a Unit Root. Journal of the American Statistical Association, 74(366), 427-431.
+
+Kwiatkowski, D., Phillips, P. C. B., Schmidt, P., and Shin, Y. (1992). Testing the Null Hypothesis of Stationarity against the Alternative of a Unit Root: How Sure Are We that Economic Time Series Have a Unit Root? Journal of Econometrics, 54(1-3), 159-178.
+
+
+Ljung, G. M., and Box, G. E. P. (1978). On a Measure of Lack of Fit in Time Series Models. Biometrika, 65(2), 297-303.
+
+Yahoo Finance. Hang Seng Index (^HSI) Historical Data. Accessed 14 November 2026.
+
+
