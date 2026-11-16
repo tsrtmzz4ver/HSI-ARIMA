@@ -659,6 +659,12 @@ forward into the forecast below.</p>
 </div>
 <div id="residual-normality-and-goodness-of-fit" class="section level2">
 <h2>3.5 Residual Normality and Goodness of Fit</h2>
+<p>The diagnostics in this section concern the ARIMA(1,0,2) candidate,
+which is the most heavily parameterised specification considered. The
+selected model is the zero-mean white noise specification, whose
+residuals are the returns themselves, so the ACF and PACF analysis of
+the log returns presented in Section 3.2 also provides evidence about
+the serial dependence in the selected model’s residuals.</p>
 <p>The Ljung-Box test only requires the residuals to be serially
 uncorrelated. Their distribution is examined separately with a normal
 Q-Q plot and the Jarque-Bera test, and the fitted values are compared
@@ -833,11 +839,14 @@ that the model reproduces the scale of the series but not its direction.
 The mean absolute percentage error is around 100 per cent. MAPE is not a
 reliable measure for daily returns because the actual values frequently
 approach zero and the ratio becomes unstable, so it is reported only for
-completeness. Theil’s U statistic is 0.9986, essentially equal to one,
-indicating that the forecasts are no better than a naive forecast which
-simply repeats the last observed value. This is the expected outcome for
-a series whose dependence structure is as weak as the information
-criteria in Section 3.4 suggest.</p>
+completeness. The MASE of 0.5304 is below one, although this ratio
+compares the test error with the scale of the training period and is
+therefore not by itself evidence of forecast skill. Theil’s U statistic
+is 0.9986, which sits essentially on one and indicates a performance
+almost identical to a naive forecast that simply repeats the last
+observed value, the gap amounting to about 0.1 per cent. This is the
+expected outcome for a series whose dependence structure is as weak as
+the information criteria in Section 3.4 suggest.</p>
 </div>
 </div>
 <div id="conclusion" class="section level1">
