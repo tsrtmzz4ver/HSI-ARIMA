@@ -48,6 +48,30 @@ log_return <- na.omit(diff(log(hsi_price)))
 
 ```
 
+The main descriptive statistics of the return series are summarised in the table below. The mean daily log return is essentially zero at 0.00003, while the standard deviation is 0.0160, so a typical trading day moves the index by about 1.6 per cent. The median is close to the mean, and the minimum and maximum show that the most extreme days sit several standard deviations away from the centre. The excess kurtosis is clearly positive, so the distribution carries heavier tails than the normal one, a feature examined formally in Section 3.5.
+
+```{r descriptive-stats}
+mu   <- mean(log_return)
+sig  <- sd(log_return)
+skew <- mean((log_return - mu)^3) / sig^3
+kurt <- mean((log_return - mu)^4) / sig^4 - 3
+
+desc <- data.frame(
+  Statistic = c("Observations", "Mean", "Standard deviation", "Median",
+                "Minimum", "Maximum", "Skewness", "Excess kurtosis"),
+  Value = c(format(length(log_return), big.mark = ","),
+            sprintf("%.5f", mu),
+            sprintf("%.4f", sig),
+            sprintf("%.5f", median(log_return)),
+            sprintf("%.4f", min(log_return)),
+            sprintf("%.4f", max(log_return)),
+            sprintf("%.3f", skew),
+            sprintf("%.3f", kurt))
+)
+
+knitr::kable(desc, row.names = FALSE, col.names = c("Statistic", "Value"),
+      caption = "Summary statistics of the daily log returns")
+```
 
 Figure 1 shows the daily log returns of the Hang Seng Index over the sample period. The series fluctuates around zero and shows clear periods of high volatility.
 
@@ -233,7 +257,7 @@ plot(fore_result, include = 0,
 
 ```
 
- The 80 per cent interval extends about 0.0204 either side of zero and the 95 per cent interval about 0.0313, both of which reproduce the in-sample standard deviation of 0.0159. What the model contributes is therefore not a directional prediction but a calibrated statement of how far a single day's return can reasonably move. This is the consequence of the comparison in Section 3.4 rather than a defect of the estimation, and it is the correct answer for a series whose conditional mean carries almost no exploitable information.
+ The 80 per cent interval extends about 0.0204 either side of zero and the 95 per cent interval about 0.0313, both of which reproduce the in-sample standard deviation of 0.0160. What the model contributes is therefore not a directional prediction but a calibrated statement of how far a single day's return can reasonably move. This is the consequence of the comparison in Section 3.4 rather than a defect of the estimation, and it is the correct answer for a series whose conditional mean carries almost no exploitable information.
 
 ## 4.1 Out-of-sample Forecast Evaluation
 
